@@ -3,6 +3,9 @@
 **NMOS Device ID–VGS–VDS 3D Characteristic Surface Plotter**
 <img width="3088" height="1846" alt="5e9aedc21b234b3d0cead8ec19a5392b" src="https://github.com/user-attachments/assets/e448a317-334e-4ca7-91ef-4c0a0a00bc4a" />
 
+<img width="892" height="576" alt="1d8e2817f57661ef10bf84a8bf7705e6" src="https://github.com/user-attachments/assets/1a50adaa-7a7c-4a99-968d-b68c0a0b02e0" />
+<img width="1454" height="598" alt="53bb2b290d74a7f77abd53d543fb86aa" src="https://github.com/user-attachments/assets/bb1e0629-0679-462b-9556-13cddb3fccd6" />
+
 ---
 
 基于 Level 1 MOSFET 模型（Shichman–Hodges），使用 Gismondi 平滑函数实现线性区到饱和区的 C¹ 连续过渡。生成交互式 3D 曲面图 + 2D 俯视热力图，支持鼠标悬停联动高亮和实时参数修改。
@@ -251,8 +254,5 @@ $$V_{DS,\text{eff}} = \frac{1}{2}\left(V_{DS} + V_{ov} - \sqrt{(V_{DS} - V_{ov})
   采样点数         = 100 × 100
 ============================================================
 
----
-## 图/ plot
-<img width="892" height="576" alt="1d8e2817f57661ef10bf84a8bf7705e6" src="https://github.com/user-attachments/assets/117e7271-b912-495f-b25b-2b3189902688" />
-<img width="1454" height="598" alt="53bb2b290d74a7f77abd53d543fb86aa" src="https://github.com/user-attachments/assets/01dc7dcf-bc0d-4c01-87e5-45bca8099f21" />
+
 
