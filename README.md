@@ -2,6 +2,8 @@
 
 **NMOS Device ID–VGS–VDS 3D Characteristic Surface Plotter**
 
+**适合模拟电路模拟集成电路设计初学者和工程师**
+
 演示视频 demo
 https://www.bilibili.com/video/BV1BTjg6KE3z/?spm_id_from=333.1007.top_right_bar_window_history.content.click&vd_source=a8ac49f0dd00dca03954533873a8dae6
 <img width="3088" height="1846" alt="5e9aedc21b234b3d0cead8ec19a5392b" src="https://github.com/user-attachments/assets/e448a317-334e-4ca7-91ef-4c0a0a00bc4a" />
