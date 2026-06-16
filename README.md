@@ -24,7 +24,6 @@ https://www.bilibili.com/video/BV1BTjg6KE3z/?spm_id_from=333.1007.top_right_bar_
 - [使用方法 / Usage](#使用方法--usage)
   - [1. 命令行传参 / CLI Arguments](#1-命令行传参--cli-arguments)
   - [2. 交互式输入 / Interactive Input](#2-交互式输入--interactive-input)
-  - [3. 对话中提供参数 / In-Session Parameters](#3-对话中提供参数--in-session-parameters)
 - [参数说明 / Parameters](#参数说明--parameters)
 - [交互功能 / Interactive Features](#交互功能--interactive-features)
 - [物理模型 / Physical Model](#物理模型--physical-model)
