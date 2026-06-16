@@ -250,6 +250,8 @@ $$V_{DS,\text{eff}} = \frac{1}{2}\left(V_{DS} + V_{ov} - \sqrt{(V_{DS} - V_{ov})
   VDS 扫描范围     = 0 – 6.0 V
   采样点数         = 100 × 100
 ============================================================
+
+---
 ## 图/ plot
 <img width="892" height="576" alt="1d8e2817f57661ef10bf84a8bf7705e6" src="https://github.com/user-attachments/assets/117e7271-b912-495f-b25b-2b3189902688" />
 <img width="1454" height="598" alt="53bb2b290d74a7f77abd53d543fb86aa" src="https://github.com/user-attachments/assets/01dc7dcf-bc0d-4c01-87e5-45bca8099f21" />
