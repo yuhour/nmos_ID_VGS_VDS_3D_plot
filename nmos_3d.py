@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """
-NMOS 器件 ID–VGS–VDS 三维特性曲面图
-=====================================
+NMOS 器件 ID–VGS–VDS 三维特性曲面图 (v2)
+===========================================
 
 基于 Level 1 MOSFET 模型 (Shichman–Hodges)。所有器件物理参数由用户提供，
 代码内不预存默认值。
+
+v2 新增：
+  - 3D 视图内显示鼠标悬停点对应的计算公式（含代入数值）
+  - 深线性区额外显示 R_on 计算公式
+  - 各工作区显示对应的经典公式及 Gismondi 平滑中间量
 
 必须提供的 6 个器件参数：
   - W      : 栅宽 [μm]
@@ -16,9 +21,9 @@ NMOS 器件 ID–VGS–VDS 三维特性曲面图
 
 三种使用方式（按优先级）：
   1. 命令行传参（适合自动化）：
-     python nmos_id_3d.py --W_um 10 --L_um 1 --t_ox_nm 20 --N_sub 1e16 --phi_F 0.35
+     python v2.py --W_um 10 --L_um 1 --t_ox_nm 20 --N_sub 1e16 --phi_F 0.35
   2. 交互式输入（运行后按提示逐一输入）：
-     python nmos_id_3d.py
+     python v2.py
   3. 对话中提供参数（在 CodeWhale 会话中直接告诉我数值）
 
 依赖：numpy, matplotlib
@@ -30,6 +35,13 @@ from matplotlib import cm, ticker
 import argparse
 import sys
 import os
+
+# Windows GBK → UTF-8 兼容
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # ============================================================================
 # 物理常数 (CGS 单位制)
@@ -322,12 +334,13 @@ def compute_id_grid(params, derived):
 
 
 # ============================================================================
-# 三维绘图
+# 三维绘图 (v2: 新增 3D 公式显示)
 # ============================================================================
 
 def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
     """
     绘制 ID–VGS–VDS 三维曲面图 + 俯视热力图，鼠标悬停联动高亮。
+    v2 新增：3D 视图内公式显示框，展示计算公式及代入数值。
     query_point: (vgs, vds, id_mA) 或 None — 查询高亮点。
     """
     ID_mA = ID_A * 1e3
@@ -339,6 +352,10 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
     WL   = derived["WL"]
     lam  = params["lam"]
     n_pts = params["n_pts"]
+    delta = derived["delta_V"]
+
+    beta_A  = mu_n * C_ox * WL                # [A/V²]
+    beta_mA = beta_A * 1e3                    # [mA/V²]
 
     # ---- 1D 网格（用于交互式查找） ----
     vgs_1d = np.linspace(0.0, VGS_max, n_pts)
@@ -375,7 +392,7 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
 
     # 3D 标题
     title_lines = [
-        "NMOS $I_D$–$V_{GS}$–$V_{DS}$ Characteristic Surface",
+        "NMOS $I_D$–$V_{GS}$–$V_{DS}$ Characteristic Surface  (v2: formula display)",
         (
             f"$W={params['W_um']}\\,\\mu\\mathrm{{m}},\\;"
             f"L={params['L_um']}\\,\\mu\\mathrm{{m}},\\;"
@@ -399,7 +416,7 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
                 return 0.0
             vov = vgs_val - VTH
             vds_eff = 0.5 * (vds_val + vov
-                             - np.sqrt((vds_val - vov)**2 + 4.0 * delta_plot**2))
+                              - np.sqrt((vds_val - vov)**2 + 4.0 * delta_plot**2))
             return (mu_n * C_ox * WL
                     * (vov * vds_eff - 0.5 * vds_eff**2)
                     * (1.0 + lam * vds_val)) * 1e3
@@ -540,7 +557,7 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
                 fig.canvas.draw_idle()
 
         fig.canvas.mpl_connect('key_press_event', _toggle_regions)
-        fig.text(0.25, 0.005, "Press 'h' to toggle region annotations",
+        fig.text(0.22, 0.005, "Press 'h' to toggle region annotations",
                  ha='center', fontsize=9, color='gray', style='italic',
                  transform=fig.transFigure)
 
@@ -571,6 +588,14 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
                               markeredgecolor="darkred", markeredgewidth=1.5,
                               zorder=200)
 
+    # v2: 点击蓝色标记
+    click_marker_2d, = ax2d.plot([], [], "bs", markersize=12, markeredgewidth=2,
+                                 zorder=150)
+    click_marker_3d, = ax3d.plot([], [], [], "bD", markersize=10,
+                                 markeredgecolor="darkblue", markeredgewidth=1.5,
+                                 zorder=210)
+    click_annot = None   # 点击标注 (将在 _on_click 中创建)
+
     # 信息浮窗（固定在 2D 面板左上角，避免遮挡深线性区）
     info_box = ax2d.text(
         0.02, 0.98, "", transform=ax2d.transAxes,
@@ -578,6 +603,11 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
         bbox=dict(boxstyle="round,pad=0.5", facecolor="white",
                   edgecolor="#555555", alpha=0.92),
     )
+
+    # ========================================================================
+    #  v2 新增：公式弹窗引用（点击触发）
+    # ========================================================================
+    popup_fig_ref = [None]   # mutable container for nonlocal access in _on_click
 
     # ---- 工作区判断 ----
     def _region_name(vgs, vds):
@@ -594,7 +624,251 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
             return "Triode"
         return "Saturation"
 
-    # ---- 鼠标悬停联动 ----
+    # ========================================================================
+    #  v2 新增：构建公式文本（各工作区不同）
+    # ========================================================================
+
+    def _build_formula_text(vgs_val, vds_val, id_val, region):
+        """
+        根据工作区生成公式显示文本，含代入数值。
+        返回 ANSI 风格的多行字符串（matplotlib 用 $...$ 数学模式）。
+        """
+        vov_val = vgs_val - VTH
+
+        # 计算 Gismondi VDS_eff
+        if vgs_val > VTH and vds_val >= 0:
+            vds_eff_val = 0.5 * (vds_val + vov_val
+                                 - np.sqrt((vds_val - vov_val)**2 + 4.0 * delta**2))
+        else:
+            vds_eff_val = 0.0
+
+        region_colors = {
+            "Cutoff":       "#aaaaaa",
+            "Subthreshold": "#d4a843",
+            "Deep Triode":  "#ff6b35",
+            "Triode":       "#4da6ff",
+            "Saturation":   "#4ec94e",
+        }
+        color = region_colors.get(region, "#ffffff")
+
+        header = f"═══ {region} ═══"
+
+        lines = [header, ""]
+
+        # ── 共通量 ──
+        lines.append(
+            f"$\\beta = \\mu_n C_{{ox}} (W/L)"
+            f" = {mu_n} \\times {C_ox:.4e} \\times {WL:.2f}"
+            f" = {beta_A:.4e}$ A/V$^2$"
+        )
+
+        if region in ("Cutoff", "Subthreshold"):
+            # 截止 / 亚阈值区
+            lines.append("")
+            if region == "Cutoff":
+                lines.append(
+                    f"$V_{{GS}} = {vgs_val:.4f} < V_{{TH}} = {VTH:.4f}$ "
+                    f"$\\Rightarrow$ channel not formed"
+                )
+            else:
+                lines.append(
+                    f"$V_{{GS}} = {vgs_val:.4f} \\lesssim V_{{TH}} = {VTH:.4f}$ "
+                    f"(weak inversion)"
+                )
+            lines.append(
+                f"$I_D \\approx 0$  (Level 1 model)"
+            )
+            if id_val > 0:
+                lines.append(
+                    f"$I_D$ (Gismondi) = {id_val:.6f} mA"
+                )
+
+        elif region == "Deep Triode":
+            # 深线性区：给出 Ron 公式
+            r_on = vds_val / (id_val * 1e-3) if id_val > 1e-12 else float('inf')
+
+            lines.append(
+                f"$V_{{ov}} = V_{{GS}} - V_{{TH}}"
+                f" = {vgs_val:.4f} - {VTH:.4f} = {vov_val:.4f}$ V"
+            )
+            lines.append(
+                f"$V_{{DS,eff}} \\approx V_{{DS}}$"
+                f" (Gismondi: {vds_eff_val:.4f} V)"
+            )
+            lines.append("")
+            lines.append(
+                "$\\mathbf{Deep\\ Triode\\ (V_{DS} \\ll V_{ov}):}$"
+            )
+            lines.append(
+                f"$I_D \\approx \\beta \\cdot V_{{ov}} \\cdot V_{{DS}}$"
+            )
+            lines.append(
+                f"$\\;\\;\\; = {beta_A:.4e} \\times {vov_val:.4f}"
+                f" \\times {vds_val:.4f}$"
+            )
+            id_approx_dt = beta_mA * vov_val * vds_val
+            lines.append(
+                f"$\\;\\;\\; = {id_approx_dt:.4f}$ mA"
+            )
+            lines.append("")
+            lines.append(
+                "$\\mathbf{R_{on}\\ (on-resistance):}$"
+            )
+            lines.append(
+                f"$R_{{\\mathrm{{on}}}}"
+                f" = \\frac{{V_{{DS}}}}{{I_D}}"
+                f" \\approx \\frac{{1}}{{\\beta \\cdot V_{{ov}}}}$"
+            )
+            lines.append(
+                f"$\\;\\;\\; = \\frac{{1}}"
+                f"{{{beta_A:.4e} \\times {vov_val:.4f}}}$"
+            )
+            ron_approx = 1.0 / (beta_A * vov_val)
+            if ron_approx < 1e3:
+                lines.append(
+                    f"$\\;\\;\\; \\approx {ron_approx:.2f}$ Ω"
+                )
+            else:
+                lines.append(
+                    f"$\\;\\;\\; \\approx {ron_approx/1e3:.3f}$ kΩ"
+                )
+            lines.append("")
+            if r_on < 1e3:
+                lines.append(
+                    f"$R_{{\\mathrm{{on}}}}$ (from $I_D$ exact)"
+                    f" = {r_on:.2f} Ω"
+                )
+            else:
+                lines.append(
+                    f"$R_{{\\mathrm{{on}}}}$ (from $I_D$ exact)"
+                    f" = {r_on/1e3:.3f} kΩ"
+                )
+            lines.append("")
+            gm = beta_mA * vds_val
+            lines.append(f"$g_m \\approx \\beta \\cdot V_{{DS}}$ = {gm:.4f} mA/V")
+
+        elif region == "Triode":
+            # 线性区
+            lines.append(
+                f"$V_{{ov}} = V_{{GS}} - V_{{TH}}"
+                f" = {vgs_val:.4f} - {VTH:.4f} = {vov_val:.4f}$ V"
+            )
+            lines.append(
+                f"$V_{{DS,eff}}$ (Gismondi) = {vds_eff_val:.4f} V"
+            )
+            lines.append("")
+            lines.append(
+                "$\\mathbf{Triode\\ (Linear)\\;Region:}$"
+            )
+            lines.append(
+                f"$I_D = \\beta \\left["
+                f"V_{{ov}} V_{{DS,eff}} - \\frac{{1}}{{2}} V_{{DS,eff}}^2"
+                f"\\right](1 + \\lambda V_{{DS}})$"
+            )
+            lines.append("")
+            lines.append(" ── Step-by-step ──")
+            term1 = vov_val * vds_eff_val
+            term2 = 0.5 * vds_eff_val**2
+            paren = term1 - term2
+            mod   = 1.0 + lam * vds_val
+            lines.append(
+                f"$V_{{ov}} \\cdot V_{{DS,eff}}"
+                f" = {vov_val:.4f} \\times {vds_eff_val:.4f}"
+                f" = {term1:.4f}$"
+            )
+            lines.append(
+                f"$\\frac{{1}}{{2}} V_{{DS,eff}}^2"
+                f" = 0.5 \\times {vds_eff_val:.4f}^2"
+                f" = {term2:.4f}$"
+            )
+            lines.append(
+                f"$[\\;\\;\\;\\;\\;\\;]"
+                f" = {term1:.4f} - {term2:.4f}"
+                f" = {paren:.4f}$ V$^2$"
+            )
+            lines.append(
+                f"$(1 + \\lambda V_{{DS}})"
+                f" = 1 + {lam} \\times {vds_val:.4f}"
+                f" = {mod:.4f}$"
+            )
+            lines.append(
+                f"$I_D = {beta_A:.4e} \\times {paren:.4f}"
+                f" \\times {mod:.4f}$"
+            )
+            id_exact = beta_mA * paren * mod
+            lines.append(
+                f"$I_D = {id_exact:.4f}$ mA"
+            )
+            lines.append("")
+            gm = beta_mA * vds_val * (1.0 + lam * vds_val)
+            lines.append(f"$g_m = \\beta \\cdot V_{{DS}} \\cdot (1+\\lambda V_{{DS}})$"
+                         f" = {gm:.4f} mA/V")
+
+        elif region == "Saturation":
+            # 饱和区
+            lines.append(
+                f"$V_{{ov}} = V_{{GS}} - V_{{TH}}"
+                f" = {vgs_val:.4f} - {VTH:.4f} = {vov_val:.4f}$ V"
+            )
+            lines.append(
+                f"$V_{{DS,eff}} \\approx V_{{ov}}$"
+                f" (Gismondi: {vds_eff_val:.4f} V)"
+            )
+            lines.append("")
+            lines.append(
+                "$\\mathbf{Saturation\\;Region}\\;(V_{DS} \\geq V_{ov}):$"
+            )
+            lines.append(
+                f"$I_D \\approx \\frac{{1}}{{2}}"
+                f"\\beta \\cdot V_{{ov}}^2 "
+                f"\\cdot (1 + \\lambda V_{{DS}})$"
+            )
+            lines.append("")
+            lines.append(" ── Step-by-step ──")
+            term_sq = 0.5 * vov_val**2
+            mod_sat = 1.0 + lam * vds_val
+            lines.append(
+                f"$\\frac{{1}}{{2}} V_{{ov}}^2"
+                f" = 0.5 \\times {vov_val:.4f}^2"
+                f" = {term_sq:.4f}$ V$^2$"
+            )
+            lines.append(
+                f"$(1 + \\lambda V_{{DS}})"
+                f" = 1 + {lam} \\times {vds_val:.4f}"
+                f" = {mod_sat:.4f}$"
+            )
+            lines.append(
+                f"$I_D \\approx {beta_A:.4e} \\times {term_sq:.4f}"
+                f" \\times {mod_sat:.4f}$"
+            )
+            id_approx_sat = beta_mA * term_sq * mod_sat
+            lines.append(
+                f"$I_D \\approx {id_approx_sat:.4f}$ mA"
+            )
+            lines.append("")
+            lines.append(" ── Gismondi exact ──")
+            # Use the actual Gismondi formula for comparison
+            vds_eff_sat = vds_eff_val
+            term1_s = vov_val * vds_eff_sat
+            term2_s = 0.5 * vds_eff_sat**2
+            paren_s = term1_s - term2_s
+            id_gis = beta_mA * paren_s * mod_sat
+            lines.append(
+                f"$I_D$ (Gismondi) = {id_gis:.4f} mA"
+            )
+            lines.append("")
+            gm = beta_mA * vov_val * mod_sat
+            lines.append(
+                f"$g_m = \\beta \\cdot V_{{ov}} \\cdot (1+\\lambda V_{{DS}})$"
+                f" = {gm:.4f} mA/V"
+            )
+
+        return "\n".join(lines)
+
+    # ========================================================================
+    #  鼠标悬停联动（含 v2 公式显示）
+    # ========================================================================
+
     def _on_hover(event):
         if event.inaxes != ax2d:
             return
@@ -613,7 +887,6 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
         cursor_2d.set_data([vgs_val], [vds_val])
 
         # 更新 2D 信息浮窗（含 gm / R_on）
-        beta_mA = mu_n * C_ox * WL * 1e3          # [mA/V²]
         vov_val = vgs_val - VTH
 
         lines = [
@@ -630,7 +903,7 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
             gm = beta_mA * vds_val
             lines.append(f"$g_m$ = {gm:.4f} mA/V")
         elif region == "Triode":
-            gm = beta_mA * vds_val
+            gm = beta_mA * vds_val * (1.0 + lam * vds_val)
             lines.append(f"$g_m$ = {gm:.4f} mA/V")
         elif region == "Saturation":
             gm = beta_mA * vov_val * (1.0 + lam * vds_val)
@@ -648,6 +921,134 @@ def plot_id_3d(VGS, VDS, ID_A, derived, params, query_point=None):
         fig.canvas.draw_idle()
 
     fig.canvas.mpl_connect("motion_notify_event", _on_hover)
+
+    # ========================================================================
+    #  v2 新增：左键点击 → 公式弹窗
+    # ========================================================================
+
+    def _show_formula_popup(vgs_val, vds_val, id_val, region, rcolor):
+        """弹出独立公式窗口，显示计算过程。重复点击关闭旧窗重开。"""
+        # 关闭旧弹窗
+        if popup_fig_ref[0] is not None:
+            try:
+                plt.close(popup_fig_ref[0])
+            except Exception:
+                pass
+
+        formula_text = _build_formula_text(vgs_val, vds_val, id_val, region)
+        raw_lines = formula_text.split("\n")
+
+        # 估算窗口高度
+        n_lines = len(raw_lines)
+        fig_h = max(4.5, n_lines * 0.32 + 1.2)
+
+        popup_fig = plt.figure(figsize=(8.0, fig_h))
+        popup_fig_ref[0] = popup_fig
+
+        # 深色背景
+        popup_fig.patch.set_facecolor("#0b1220")
+
+        # 逐行渲染：各行独立判定是否为 mathtext（以 $ 包裹为数学行）
+        spacing = 0.94 / max(n_lines, 1)
+        for i, line in enumerate(raw_lines):
+            y_pos = 0.96 - i * spacing
+            if y_pos < 0.02:
+                break
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # header 行（纯文本，带颜色和加粗）
+            if stripped.startswith("═══") and stripped.endswith("═══"):
+                popup_fig.text(
+                    0.06, y_pos, stripped,
+                    fontsize=12, fontweight="bold",
+                    color=rcolor, family="monospace",
+                    va="top",
+                )
+            elif stripped.startswith("──") or stripped.startswith("──"):
+                # 分隔线
+                popup_fig.text(
+                    0.06, y_pos, stripped,
+                    fontsize=9, color="#888888", family="monospace",
+                    va="top",
+                )
+            elif stripped.startswith("$"):
+                # mathtext 数学行
+                popup_fig.text(
+                    0.06, y_pos, stripped,
+                    fontsize=10, color="#e0e0e0",
+                    va="top",
+                )
+            else:
+                # 普通文本行
+                popup_fig.text(
+                    0.06, y_pos, stripped,
+                    fontsize=9.5, color="#c8c8c8", family="monospace",
+                    va="top",
+                )
+
+        # 标题
+        popup_fig.suptitle(
+            f"Formula  —  {region}",
+            fontsize=13, color=rcolor, fontweight="bold",
+            x=0.06, ha="left", y=0.995,
+        )
+
+        popup_fig.subplots_adjust(top=0.93, bottom=0.03, left=0.02, right=0.98)
+        popup_fig.show()
+
+    def _on_click(event):
+        """左键点击 2D 热力图 → 蓝色标记 + 弹出公式窗口"""
+        nonlocal click_annot
+
+        if event.inaxes != ax2d:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        if event.button != 1:   # 仅左键
+            return
+
+        iv = np.argmin(np.abs(vgs_1d - event.xdata))
+        id_ = np.argmin(np.abs(vds_1d - event.ydata))
+        vgs_val = vgs_1d[iv]
+        vds_val = vds_1d[id_]
+        id_val = ID_mA[id_, iv]
+        region = _region_name(vgs_val, vds_val)
+
+        # 更新 2D 蓝色方块标记
+        click_marker_2d.set_data([vgs_val], [vds_val])
+        # 更新 3D 蓝色菱形标记
+        click_marker_3d.set_data([vgs_val], [vds_val])
+        click_marker_3d.set_3d_properties([id_val])
+
+        # 更新 / 创建点击标注
+        if click_annot is not None:
+            try:
+                click_annot.remove()
+            except Exception:
+                pass
+        click_annot = ax2d.annotate(
+            f"VGS={vgs_val:.3f}\nVDS={vds_val:.3f}\nID={id_val:.4f}",
+            xy=(vgs_val, vds_val), xytext=(14, 14), textcoords="offset points",
+            fontsize=8.5, color="#1a3a8a", fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.35", facecolor="#e8f0ff",
+                      edgecolor="#3366cc", alpha=0.90),
+            zorder=202,
+        )
+
+        rcolor = {
+            "Cutoff":       "#aaaaaa",
+            "Subthreshold": "#d4a843",
+            "Deep Triode":  "#ff6b35",
+            "Triode":       "#4da6ff",
+            "Saturation":   "#4ec94e",
+        }.get(region, "#ffffff")
+
+        _show_formula_popup(vgs_val, vds_val, id_val, region, rcolor)
+
+        fig.canvas.draw_idle()
+
+    fig.canvas.mpl_connect("button_press_event", _on_click)
 
     # ---- 2D 面板上的区域边界投影 ----
     if params.get("show_regions", True) and 0 < VTH < VGS_max:
@@ -763,19 +1164,19 @@ def print_summary(params, derived):
 
 def build_parser():
     p = argparse.ArgumentParser(
-        description="NMOS ID–VGS–VDS 三维特性曲面图生成器",
+        description="NMOS ID–VGS–VDS 三维特性曲面图生成器 (v2: formula display)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
-  # 命令行一次性传参
-  python nmos_id_3d.py --W_um 10 --L_um 1 --t_ox_nm 20 --N_sub 1e16 --phi_F 0.35
+ 示例:
+   # 命令行一次性传参
+   python v2.py --W_um 10 --L_um 1 --t_ox_nm 20 --N_sub 1e16 --phi_F 0.35
 
-  # 交互式输入（无命令行参数时自动进入）
-  python nmos_id_3d.py
+   # 交互式输入（无命令行参数时自动进入）
+   python v2.py
 
-  # 部分命令行 + 其余交互式补充
-  python nmos_id_3d.py --W_um 20 --L_um 1.5
-        """,
+   # 部分命令行 + 其余交互式补充
+   python v2.py --W_um 20 --L_um 1.5
+         """,
     )
 
     g_dev = p.add_argument_group("核心器件参数（必须提供，无默认值）")
@@ -891,8 +1292,9 @@ def main():
             print(f"[信息] 图像已保存至: {args.save}")
         _first = False
 
-        print("\n  \u001b[33m\u001b[1m触控提示\u001b[0m  图形窗口中按 \u001b[1mh\u001b[0m 键可切换区域标注的显示/隐藏")
-        print("  \u001b[33m\u001b[1m修改提示\u001b[0m  关闭图形窗口后可修改参数并重新生成\n")
+        print("\n  \033[33m\033[1m触控提示\033[0m  图形窗口中按 \033[1mh\033[0m 键可切换区域标注的显示/隐藏")
+        print("  \033[33m\033[1mv2 功能\033[0m   鼠标悬停 → 3D 视图左上角显示计算公式与代入数值")
+        print("  \033[33m\033[1m修改提示\033[0m  关闭图形窗口后可修改参数并重新生成\n")
         plt.show()
 
         # ---- 修改 / 查询循环 ----
